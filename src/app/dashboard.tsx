@@ -39,7 +39,8 @@ export default function DashboardScreen() {
       return;
     }
 
-    // We'll connect these screens next.
+    if (tab === "alerts") router.push("/alerts");
+    if (tab === "events") router.push("/events");
     console.log(`Selected ${tab}`);
   }
 

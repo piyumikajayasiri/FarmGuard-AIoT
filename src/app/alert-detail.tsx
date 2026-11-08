@@ -1,0 +1,44 @@
+import { useEffect, useState } from "react";
+import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { router, useLocalSearchParams } from "expo-router";
+import { alertRequest, type FarmAlert } from "../services/alerts.service";
+import s from "../styles/alerts.styles";
+type Mode="detail"|"acknowledge"|"resolve"|"feedback";
+export default function AlertDetail(){
+ const {id}=useLocalSearchParams<{id:string}>();const [item,setItem]=useState<FarmAlert|null>(null),[mode,setMode]=useState<Mode>("detail");
+ const [error,setError]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[success,setSuccess]=useState("");
+ const [note,setNote]=useState(""),[investigating,setInvestigating]=useState(false),[resolution,setResolution]=useState("FIXED_ON_SITE");
+ const [useful,setUseful]=useState<boolean|null>(null),[correct,setCorrect]=useState<boolean|null>(null);
+ const load=async()=>{setLoading(true);setError("");try{const a=await alertRequest<FarmAlert>("/"+encodeURIComponent(id));setItem(a);if(a.feedback?.length){setUseful(a.feedback.some(f=>f.feedback_type==="USEFUL"));setCorrect(a.feedback.some(f=>f.feedback_type==="CORRECT_CAUSE"));}}catch(e){setError(e instanceof Error?e.message:"Unable to load alert");}finally{setLoading(false);}};
+ useEffect(()=>{void load();},[id]);
+ const change=(next:Mode)=>{setMode(next);setNote(next==="feedback"?item?.feedback?.[0]?.comments||"":"");setError("");setSuccess("");};
+ const save=async()=>{if(busy)return;if(mode==="resolve"&&!note.trim()){setError("Add resolution notes before closing this alert.");return;}if(mode==="feedback"&&(useful===null||correct===null)){setError("Please answer both feedback questions.");return;}setBusy(true);setError("");try{const body=mode==="acknowledge"?{note,investigating}:mode==="resolve"?{resolution_type:resolution,notes:note}:{useful,correct_cause:correct,comments:note};await alertRequest("/"+encodeURIComponent(id)+"/"+mode,body);await load();setMode("detail");setSuccess(mode==="feedback"?"Feedback saved. Thank you.":mode==="resolve"?"Alert marked as resolved.":"Alert acknowledged.");}catch(e){setError(e instanceof Error?e.message:"Unable to save changes");}finally{setBusy(false);}};
+ const back=()=>{if(mode!=="detail")change("detail");else if(router.canGoBack())router.back();else router.replace("/alerts");};
+ const choice=(label:string,selected:boolean,press:()=>void)=><TouchableOpacity disabled={busy} accessibilityRole="button" accessibilityState={{selected}} style={[s.choice,selected&&s.chosen]} onPress={press}><Text style={s.choiceText}>{label}</Text></TouchableOpacity>;
+ const val=(n:number|null,suffix="")=>n===null?"—":Number(n).toFixed(1).replace(/\.0$/,"")+suffix;
+ return <SafeAreaView style={s.screen}><ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+ <View style={s.header}><TouchableOpacity disabled={busy} accessibilityLabel="Go back" onPress={back}><Text style={s.link}>‹ Back</Text></TouchableOpacity><Text style={[s.title,{fontSize:23}]}>{mode==="detail"?"Alert Details":mode==="acknowledge"?"Acknowledge Alert":mode==="resolve"?"Resolve Alert":"Alert Feedback"}</Text></View>
+ {loading&&<ActivityIndicator color="#187B42"/>}{!!error&&<View style={s.card}><Text style={s.error}>{error}</Text>{!item&&<TouchableOpacity onPress={load}><Text style={s.link}>Try again</Text></TouchableOpacity>}</View>}{!!success&&<Text style={[s.link,{marginBottom:14}]}>{success}</Text>}
+ {item&&<>
+ <Text style={s.subtitle}>#{item.id.slice(0,8)} • {item.severity} • {item.status}</Text>
+ {mode!=="feedback"&&<View style={s.dark}><Text style={s.eyebrow}>ANOMALY DETECTED • {item.detection_method?.replace(/_/g," ")||"Detection method unavailable"}</Text><Text style={s.headline}>{item.message_en||item.alert_type}</Text><Text style={[s.subtitle,{color:"#BCC7CC"}]}>{item.house_name||"Unassigned house"} • {item.flock_name||"No flock"} • {new Date(item.created_at).toLocaleString()}</Text><View style={s.row}>{[["Expected",val(item.expected_value)],["Actual",val(item.actual_value)],["Deviation",val(item.deviation_percentage,"%")]].map(([label,value])=><View key={label} style={s.stat}><Text style={s.statLabel}>{label}</Text><Text style={s.statValue}>{value}</Text></View>)}</View></View>}
+ {mode==="detail"&&<>
+ <View style={[s.row,{marginBottom:16}]}>{[["Duration",val(item.duration_minutes," min")],["Confidence",item.confidence===null?"—":val(item.confidence*100,"%")],["Reliability",item.sensor_reliability===null?"—":val(item.sensor_reliability*100,"%")]].map(([label,value])=><View key={label} style={[s.card,{flex:1,padding:10,alignItems:"center",marginBottom:0}]}><Text style={{color:"#64748B",fontSize:11}}>{label}</Text><Text style={[s.link,{marginTop:6}]}>{value}</Text></View>)}</View>
+ <View style={s.card}><Text style={s.label}>CONTRIBUTING FACTORS</Text><Text style={s.body}>{item.explanation||"No contributing-factor explanation available."}</Text>{!!item.likely_cause&&<View style={[s.card,{backgroundColor:"#E6F1E3",marginTop:14,marginBottom:0}]}><Text style={s.link}>Likely cause: {item.likely_cause}</Text></View>}</View>
+ <View style={[s.card,{backgroundColor:"#E8F3E5"}]}><Text style={s.label}>✓ RECOMMENDED ACTION</Text><Text style={s.body}>{item.recommended_action||"No recommended action recorded."}</Text></View>
+ {!!item.acknowledged_at&&<View style={s.card}><Text style={s.body}>Acknowledged by {item.acknowledged_name||"a farm user"}</Text><Text style={s.subtitle}>{new Date(item.acknowledged_at).toLocaleString()}</Text></View>}
+ {!!item.resolution_notes&&<View style={s.card}><Text style={s.label}>RESPONSE NOTES</Text><Text style={s.body}>{item.resolution_notes}</Text></View>}
+ <View style={s.card}><Text style={s.subtitle}>This system provides an early warning only. Consult a veterinarian for health decisions.</Text></View>
+ {item.status==="ACTIVE"&&<TouchableOpacity style={s.button} onPress={()=>change("acknowledge")}><Text style={s.buttonText}>Acknowledge</Text></TouchableOpacity>}
+ {["ACTIVE","ACKNOWLEDGED"].includes(item.status)&&<TouchableOpacity style={[s.button,{backgroundColor:"#D98D00"}]} onPress={()=>change("resolve")}><Text style={s.buttonText}>Resolve</Text></TouchableOpacity>}
+ <TouchableOpacity style={s.button} onPress={()=>change("feedback")}><Text style={s.buttonText}>Give Feedback</Text></TouchableOpacity>
+ </>}
+ {mode==="acknowledge"&&<><View style={s.card}><Text style={s.label}>STATUS</Text><View style={s.row}>{choice("✓ Acknowledged",!investigating,()=>setInvestigating(false))}{choice("Investigating",investigating,()=>setInvestigating(true))}</View></View><View style={s.card}><Text style={s.label}>ADD NOTE</Text><TextInput editable={!busy} multiline maxLength={4000} accessibilityLabel="Acknowledgement note" placeholder="What have you observed?" value={note} onChangeText={setNote} style={s.input}/><View style={s.row}>{["On my way","Fixed flow","Need vet"].map(t=><View key={t} style={{flex:1}}>{choice(t,false,()=>setNote(n=>n?(n+" · "+t):t))}</View>)}</View></View></>}
+ {mode==="resolve"&&<><View style={s.card}><Text style={s.label}>RESOLUTION TYPE</Text>{[["FIXED_ON_SITE","Fixed on site"],["AUTO_RECOVERED","Auto recovered"],["TECHNICIAN_CALLED","Technician called"],["FALSE_ALERT","False alert"]].map(([v,l])=><View key={v} style={{marginBottom:8}}>{choice(l,resolution===v,()=>setResolution(v))}</View>)}</View><View style={s.card}><Text style={s.label}>RESOLUTION NOTES</Text><TextInput editable={!busy} multiline maxLength={4000} accessibilityLabel="Resolution notes" placeholder="Describe the action taken and the outcome." value={note} onChangeText={setNote} style={s.input}/></View></>}
+ {mode==="feedback"&&<><View style={s.card}><Text style={s.label}>WAS THIS ALERT USEFUL?</Text><View style={s.row}>{choice("👍 Useful",useful===true,()=>setUseful(true))}{choice("👎 False alert",useful===false,()=>setUseful(false))}</View></View><View style={s.card}><Text style={s.label}>WAS THE CAUSE CORRECT?</Text><View style={s.row}>{choice("✓ Correct cause",correct===true,()=>setCorrect(true))}{choice("Incorrect",correct===false,()=>setCorrect(false))}</View></View><View style={s.card}><Text style={s.label}>COMMENTS</Text><TextInput editable={!busy} multiline maxLength={4000} accessibilityLabel="Feedback comments" value={note} onChangeText={setNote} style={s.input}/></View></>}
+ {mode!=="detail"&&<TouchableOpacity disabled={busy} style={[s.button,busy&&{opacity:0.5}]} onPress={save}><Text style={s.buttonText}>{busy?"Saving…":mode==="acknowledge"?"Confirm Acknowledgement":mode==="resolve"?"Mark as Resolved":"Submit Feedback"}</Text></TouchableOpacity>}
+ </>}
+ <TouchableOpacity disabled={busy} style={[s.button,s.secondary]} onPress={back}><Text style={s.buttonText}>Go Back</Text></TouchableOpacity>
+ </ScrollView></SafeAreaView>;
+}

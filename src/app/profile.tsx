@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { User } from "../services/auth.service";
 import { clearAuthSession, getStoredUser } from "../services/auth.storage";
@@ -54,7 +55,7 @@ export default function ProfileScreen() {
     .toUpperCase();
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -130,7 +131,7 @@ export default function ProfileScreen() {
 
         <Text style={styles.version}>FarmGuard AIoT • Research Prototype</Text>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
